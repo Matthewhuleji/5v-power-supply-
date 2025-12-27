@@ -1,0 +1,34 @@
+function [t, vbus] = simulate_rectifier_cap(Vsec_rms, Vbridge_drop, C, Iload, fline, sim_time)
+% simulate_rectifier_cap Simple explicit sim of full-wave rectifier + capacitor feeding a constant load
+% - Vsec_rms: AC secondary RMS (V)
+% - Vbridge_drop: total bridge conduction drop (V)
+% - C: filter capacitance (F)
+% - Iload: DC load current (A)
+% - fline: mains frequency (Hz)
+% - sim_time: simulation time (s)
+%
+% This is a simple physics-based integrator that models diode conduction when AC instant
+% > capacitor voltage + bridge drop; when conduction occurs capacitor recharges to peak minus drop.
+
+dt = 1e-5; % time step (10 us) -> accurate enough for 50 Hz
+t = 0:dt:sim_time;
+omega = 2*pi*fline;
+Vpk = Vsec_rms * sqrt(2);
+N = length(t);
+vbus = zeros(1,N);
+vbus(1) = Vpk - Vbridge_drop; % start charged to peak minus drop
+
+for k = 1:N-1
+    vt = Vpk * sin(omega * t(k));
+    % instantaneous diode conduction condition for full-wave bridge: |vt| > vbus + Vbridge_drop
+    if abs(vt) > (vbus(k) + Vbridge_drop)
+        % conduction: cap is quickly charged toward |vt| - Vbridge_drop (idealized instantaneous)
+        vbus(k+1) = abs(vt) - Vbridge_drop;
+    else
+        % no conduction: cap discharges into load
+        dv = -(Iload / C) * dt;
+        vbus(k+1) = vbus(k) + dv;
+    end
+end
+vbus = vbus';
+end
