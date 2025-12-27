@@ -1,0 +1,58 @@
+function design_5v_from_transformer()
+% design_5v_from_transformer Design helper for 5V/2A using step-down transformer
+% Assumes: transformer -> full-wave bridge -> capacitor input filter -> buck -> 5V
+
+% User / design parameters
+Vsec_rms = 9;      % transformer secondary RMS (V) - change to 12 if preferred
+Iout = 2.0;        % output current (A)
+fline = 50;        % mains frequency (Hz)
+Vout = 5.0;        % regulated output (V)
+Vmin_in_for_buck = 7.5; % minimum required DC bus valley for buck to regulate safely
+bridge_drop = 1.0; % approximate full-bridge conduction voltage drop (V) - Schottky ~1.0V
+
+% Derived
+Vpk = Vsec_rms * sqrt(2);
+Vdc_nom = Vpk - bridge_drop;
+f_rect = 2 * fline;
+
+% Capacitance needed to keep valley above required
+dV_allowed = Vdc_nom - Vmin_in_for_buck;
+if dV_allowed <= 0
+    error('Vdc_nom (%.2f V) is <= required Vmin for buck (%.2f V). Increase secondary voltage.', Vdc_nom, Vmin_in_for_buck);
+end
+C_needed = Iout / (f_rect * dV_allowed);
+
+% Round to practical values
+C_suggest = choose_standard_capacitance(C_needed);
+transformer_va = Vsec_rms * max(1.25*Iout, Iout); % add margin on current
+
+% Ripple estimate
+Vpp_ripple_est = Iout/(f_rect*C_suggest);
+
+% Provide recommendations
+fprintf('Designing 5V @ %.2f A from %.1f VAC secondary\n\n', Iout, Vsec_rms);
+fprintf('Secondary RMS: %.2f VAC -> Peak %.2f V\n', Vsec_rms, Vpk);
+fprintf('Estimated DC bus nominal (after bridge): %.2f V (using bridge drop = %.2f V)\n', Vdc_nom, bridge_drop);
+fprintf('Target minimum DC bus voltage for regulator: %.2f V\n', Vmin_in_for_buck);
+fprintf('Capacitance required to keep valley >= %.2f V: C_calc = %.0f uF\n', Vmin_in_for_buck, C_needed*1e6);
+fprintf('Suggested standard bulk capacitance: %.0f uF\n', C_suggest*1e6);
+fprintf('Estimated output bus ripple ≈ %.1f mVpp\n\n', Vpp_ripple_est*1000);
+
+fprintf('Transformer VA suggestion: >= %.1f VA (choose 3A rating -> 27-36 VA for margin)\n', transformer_va);
+fprintf('Bridge recommendation: Schottky bridge SS34 (3 A, 40 V) or similar\n');
+fprintf('Bulk capacitor: %d uF / 25 V low-ESR (multiple in parallel acceptable)\n', round(C_suggest*1e6));
+fprintf('Buck regulator: synchronous buck module rated >= 3 A, Vin must handle nominal DC bus (%.1f V)\n\n', Vdc_nom);
+
+% Run a short time-domain sim of rectifier + cap under load, and plot
+sim_time = 0.05; % 50 ms to show several mains cycles
+[t, vbus] = simulate_rectifier_cap(Vsec_rms, bridge_drop, C_suggest, Iout, fline, sim_time);
+if ~exist('results','dir'), mkdir('results'); end
+figure('Visible','off'); plot(t*1000, vbus); grid on;
+xlabel('Time (ms)'); ylabel('Vbus (V)'); title('DC Bus Voltage (rectifier + C)'); saveas(gcf, fullfile('results','vbus_time.png'));
+
+% show a few key numbers
+fprintf('Simulated Vbus: peak = %.2f V, valley = %.2f V, ripple_pp = %.2f mV\n', max(vbus), min(vbus), (max(vbus)-min(vbus))*1000);
+
+fprintf('\nNotes:\n- Use input and secondary fuses, inrush limiting, and earth as appropriate.\n- Use low-ESR electrolytic(s) with adequate ripple current rating and add ceramics for high-frequency decoupling.\n- If you want lower ripple or smaller caps, increase secondary RMS (e.g., 12 VAC) or use active hold-up (battery/supercap) or synchronous rectification.\n');
+
+end
